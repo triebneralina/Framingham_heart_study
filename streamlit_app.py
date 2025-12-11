@@ -413,9 +413,8 @@ def main():
             "Risk profile by sex",
             "Outcomes by sex",
             "Outcome event rates",
-            "Consistency check: Smoking",
+            "Consistency checks",
             "Missing data",
-            "Distributions (risk profile)",
             "Winsorization summary",
         ],
     )
@@ -520,7 +519,7 @@ def main():
             )
             st.pyplot(fig_bar)
     # ----------------------------------------------------------------
-    # OUTCOMES BY SEX
+    # OUTCOMES BY SEX: ADD BAR PLOTS !!!!!
     # ----------------------------------------------------------------
     elif view == "Outcomes by sex":
         st.subheader(f"Outcomes Profile by Sex: Period 1")
@@ -572,9 +571,9 @@ def main():
         st.dataframe(pd.DataFrame(rows))
 
     # ----------------------------------------------------------------
-    # SMOKING CONSISTENCY
+    # CONSISTENCY
     # ----------------------------------------------------------------
-    elif view == "Consistency check: Smoking":
+    elif view == "Consistency checks":
         st.subheader(f"Smoking Data Consistency")
         inconsistent_data = check_smoking_consistency(period1_df)
 
@@ -591,6 +590,12 @@ def main():
                 "(CURSMOKE=0 but CIGPDAY>0)."
             )
             st.dataframe(inconsistent_data[["CURSMOKE", "CIGPDAY"]].head(20))
+        
+        #----------------PREV Consistency----------------------------
+
+
+
+        
 
     # ----------------------------------------------------------------
     # MISSING DATA
@@ -658,28 +663,6 @@ def main():
 
                 fig = plot_missing_bar(missing_info_df, f"Percentage of missing values - {name}")
                 st.pyplot(fig)
-
-    # ----------------------------------------------------------------
-    # DISTRIBUTIONS 
-    # ----------------------------------------------------------------
-    elif view == "Distributions (risk profile)":
-        st.subheader(f"Distributions of Continuous Risk Profile Variables")
-
-        risk_df = make_risk_profile_df(period1_df)
-        numeric_cols = [
-            c for c in CONTINUOUS_COLUMNS_ONLY
-            if c in risk_df.columns and pd.api.types.is_numeric_dtype(risk_df[c])
-        ]
-
-        if not numeric_cols:
-            st.warning("No numeric risk profile columns found for this period.")
-        else:
-            col_choice = st.selectbox("Select a continuous numeric column to plot", numeric_cols)
-            fig_hist, fig_box = plot_distribution_by_sex(risk_df, col_choice)
-
-            st.pyplot(fig_hist)
-            st.pyplot(fig_box)
-
 
     # ----------------------------------------------------------------
     # WINSORIZATION SUMMARY
