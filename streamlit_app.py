@@ -879,6 +879,8 @@ def main():
         st.write(f"Rows after dropping: {len(dropped_df)}")
 
         # Step 2: Winsorize physiological variables
+        phys_cols_present = [c for c in PHYSIOLOGICAL_LIMITS.keys() if c in dropped_df.columns]
+        
         before_stats = dropped_df[list(PHYSIOLOGICAL_LIMITS.keys())].describe()
 
         winsorized_df = winsorize_period1(dropped_df)
@@ -908,6 +910,82 @@ def main():
                 )
         if summary_rows:
             st.dataframe(pd.DataFrame(summary_rows))
+
+    #-----------------------------------------------------------------
+    # VISUALIZATION AFTER WINSORIZING
+    #-----------------------------------------------------------------
+
+    #-----------------Check for remaining missings----------------------
+        st.markdown("### Check for Remaining Missing Values (After Dropping + Winsorization)")
+
+        missing_after = compute_missing_info(winsorized_df[phys_cols_present])
+
+        if missing_after.empty:
+            st.success("No missing values remain in the physiological variables after dropping and winsorization.")
+        else:
+            st.error("Some missing values are still present after cleaning:")
+            st.dataframe(missing_after)
+
+    #-----------------Distribution check before vs after------------------------
+        st.markdown("### Distributions Before vs After Winsorization")
+
+        if not phys_cols_present:
+            st.warning("No physiological variables found for winsorization.")
+        else:
+            col_choice = st.selectbox(
+                "Select physiological variable to compare:",
+                phys_cols_present,
+            )
+
+            # Histograms before vs after
+            fig_hist, axes = plt.subplots(1, 2, figsize=(10, 4))
+
+            sns.histplot(
+                dropped_df[col_choice].dropna(),
+                kde=True,
+                bins=30,
+                ax=axes[0],
+                color="grey",
+            )
+            axes[0].set_title(f"{col_choice} – Before winsorization")
+            axes[0].set_xlabel(col_choice)
+            axes[0].set_ylabel("Count")
+
+            sns.histplot(
+                winsorized_df[col_choice].dropna(),
+                kde=True,
+                bins=30,
+                ax=axes[1],
+                color="green",
+            )
+            axes[1].set_title(f"{col_choice} – After winsorization")
+            axes[1].set_xlabel(col_choice)
+            axes[1].set_ylabel("Count")
+
+            fig_hist.tight_layout()
+            st.pyplot(fig_hist)
+
+            # Boxplots before vs after
+            fig_box, axes_box = plt.subplots(1, 2, figsize=(10, 3))
+
+            sns.boxplot(
+                x=dropped_df[col_choice].dropna(),
+                ax=axes_box[0],
+                color="grey",
+            )
+            axes_box[0].set_title(f"{col_choice} – Before winsorization")
+            axes_box[0].set_xlabel(col_choice)
+
+            sns.boxplot(
+                x=winsorized_df[col_choice].dropna(),
+                ax=axes_box[1],
+                color="green",
+            )
+            axes_box[1].set_title(f"{col_choice} – After winsorization")
+            axes_box[1].set_xlabel(col_choice)
+
+            fig_box.tight_layout()
+            st.pyplot(fig_box)    
 
     # ----------------------------------------------------------------
     # MODELING: CVD
