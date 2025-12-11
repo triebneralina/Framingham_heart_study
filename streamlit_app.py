@@ -58,6 +58,28 @@ RISK_PROFILE_COLUMNS = [
     "BPMEDS",
 ]
 
+# For plotting distributions and boxplots
+CONTINUOUS_COLUMNS_ONLY = [
+    "AGE",
+    "CIGPDAY",
+    "BMI",
+    "SYSBP",
+    "DIABP",
+    "HEARTRTE",
+    "TOTCHOL",
+]
+
+BINARY_COLUMNS_ONLY = [    
+    "SEX",
+    "CURSMOKE",
+    "DIABETES",
+    "PREVHYP",
+    "PREVCHD",
+    "PREVAP",
+    "PREVMI",
+    "PREVSTRK",
+    "BPMEDS",]
+
 OUTCOME_COLUMNS = [
     "CVD",
     "DEATH",
@@ -261,27 +283,129 @@ def plot_missing_bar(missing_info, title):
     return fig
 
 
-def plot_distribution(df, col):
-    figs = []
+SEX_COLORS = {1: "paleturquoise", 2: "pink"}
+def plot_hist_by_sex(df, col):
+    """
+    Histogram of a numeric column grouped by SEX using dodge-style bars.
+    Colors: paleturquoise (SEX=0), pink (SEX=1)
+    """
 
-    # Histogram
-    fig1, ax1 = plt.subplots(figsize=(6, 4))
-    sns.histplot(df[col].dropna(), kde=True, bins=30, ax=ax1)
-    ax1.set_title(f"Distribution of {col}")
-    ax1.set_xlabel(col)
-    ax1.set_ylabel("Frequency")
-    fig1.tight_layout()
-    figs.append(fig1)
+    fig, ax = plt.subplots(figsize=(7, 4))
 
-    # Boxplot
-    fig2, ax2 = plt.subplots(figsize=(6, 2))
-    sns.boxplot(x=df[col].dropna(), ax=ax2)
-    ax2.set_title(f"Box Plot of {col}")
-    ax2.set_xlabel(col)
-    fig2.tight_layout()
-    figs.append(fig2)
+    sns.histplot(
+        data=df,
+        x=col,
+        hue="SEX",
+        multiple="dodge",                     # side-by-side bars
+        palette=[SEX_COLORS.get(1), SEX_COLORS.get(2)],
+        alpha=1.0,
+        kde=True,
+        ax=ax
+    )
 
-    return figs
+    ax.set_title(f"{col} Distribution by Sex", fontsize=14, fontweight="bold")
+    ax.set_xlabel(col)
+    ax.set_ylabel("Count")
+
+    fig.tight_layout()
+    return fig
+
+def plot_box_by_sex(df, col):
+    """
+    Boxplot of a numeric column grouped by SEX.
+    """
+
+    fig, ax = plt.subplots(figsize=(6, 3))
+
+    sns.boxplot(
+        data=df,
+        x="SEX",
+        y=col,
+        palette=[SEX_COLORS.get(1), SEX_COLORS.get(2)],
+        ax=ax
+    )
+
+    ax.set_title(f"Box Plot of {col} by Sex", fontsize=12, fontweight="bold")
+    ax.set_xlabel("SEX")
+    ax.set_ylabel(col)
+
+    fig.tight_layout()
+    return fig
+
+def plot_distribution_by_sex(df, col):
+    """
+    Returns both the histogram and boxplot for a column grouped by SEX.
+    """
+    fig_hist = plot_hist_by_sex(df, col)
+    fig_box = plot_box_by_sex(df, col)
+    return fig_hist, fig_box
+
+def plot_binary_bar_by_sex_percent(df, binary_col, sex_col="SEX"):
+    """
+    Grouped bar chart for a binary variable by sex, showing P(0) and P(1) as percentages.
+    """
+
+    plt.style.use("ggplot")
+
+    # Drop rows where either sex or the binary variable is missing
+    data = df[[sex_col, binary_col]].dropna().copy()
+
+    # Ensure binary_col really only has 0/1 (or is at least treated as such)
+    # Compute percentage distribution of 0/1 within each sex
+    pct_table = (
+        data.groupby(sex_col)[binary_col]
+            .value_counts(normalize=True)   # proportions within sex
+            .rename("percentage")
+            .reset_index()
+    )
+    pct_table["percentage"] = pct_table["percentage"] * 100  # to %
+
+    sex_label_map = {1: "Male", 2: "Female"}
+    pct_table["sex_label"] = pct_table[sex_col].map(
+        lambda x: sex_label_map.get(x, str(x))
+    )
+
+    sex_color_map = {
+        "Male": "paleturquoise",
+        "Female": "pink"
+    }
+
+    fig, ax = plt.subplots(figsize=(7, 4))
+
+    sns.barplot(
+        data = pct_table,
+        x = "sex_label",
+        y = "percentage",
+        hue = "binary_str",
+        dodge = True,
+        palette = [sex_color_map[label] for label in pct_table["sex_label"].unique()],
+        ax = ax,
+    )
+
+    # Add percentage labels on top of bars
+    for container in ax.containers:
+        for bar in container:
+            height = bar.get_height()
+            if not np.isnan(height) and height > 0:
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    height,
+                    f"{height:.1f}%",
+                    ha="center",
+                    va="bottom",
+                    fontsize=9,
+                )
+
+    ax.set_title(f"{binary_col} Distribution By Sex", fontsize=14, fontweight="bold")
+    ax.set_xlabel("Sex")
+    ax.set_ylabel("Percentage within sex (%)")
+    ax.legend(title=f"{binary_col} value", labels=["0", "1"])
+
+    fig.tight_layout()
+    return fig
+
+
+
 
 
 # -------------------------------------------------------------------
@@ -373,7 +497,25 @@ def main():
 
             st.write("**Reshaped descriptive statistics (rows = variable/statistic):**")
             st.dataframe(desc_stats_final)
+            
+        st.subheader(f"Distributions of Continuous Risk Profile Variables")
 
+        risk_df = make_risk_profile_df(period1_df)
+        numeric_cols = [
+            c for c in CONTINUOUS_COLUMNS_ONLY
+            if c in risk_df.columns and pd.api.types.is_numeric_dtype(risk_df[c])
+        ]
+
+        if not numeric_cols:
+            st.warning("No numeric risk profile columns found for this period.")
+        else:
+            col_choice = st.selectbox("Select a continuous numeric column to plot", numeric_cols)
+            fig_hist, fig_box = plot_distribution_by_sex(risk_df, col_choice)
+
+            st.pyplot(fig_hist)
+            st.pyplot(fig_box)
+
+        st.subheader(f"Distributions of Binary Risk Profile Variables")
     # ----------------------------------------------------------------
     # OUTCOMES BY SEX
     # ----------------------------------------------------------------
@@ -518,54 +660,23 @@ def main():
     # DISTRIBUTIONS 
     # ----------------------------------------------------------------
     elif view == "Distributions (risk profile)":
-        st.subheader(f"Distributions of Risk Profile Variables - Period 1")
+        st.subheader(f"Distributions of Continuous Risk Profile Variables")
 
         risk_df = make_risk_profile_df(period1_df)
         numeric_cols = [
-            c for c in RISK_PROFILE_COLUMNS
+            c for c in CONTINUOUS_COLUMNS_ONLY
             if c in risk_df.columns and pd.api.types.is_numeric_dtype(risk_df[c])
         ]
 
         if not numeric_cols:
             st.warning("No numeric risk profile columns found for this period.")
         else:
-            col_choice = st.selectbox("Select numeric column to plot", numeric_cols)
+            col_choice = st.selectbox("Select a continuous numeric column to plot", numeric_cols)
+            fig_hist, fig_box = plot_distribution_by_sex(risk_df, col_choice)
 
-            fig1, ax1 = plt.subplots(figsize = (8,4))
+            st.pyplot(fig_hist)
+            st.pyplot(fig_box)
 
-            sns.histplot(
-                data=risk_df,
-                x=col_choice,
-                hue="SEX",
-                multiple="dodge",  # side-by-side bars
-                palette=["paleturquoise", "pink"],
-                alpha=1.0,
-                kde=True,
-                ax=ax1
-            )
-
-            ax1.set_title(f"{col_choice} Distribution by SEX")
-            ax1.set_xlabel(col_choice)
-            ax1.set_ylabel("Count")
-            
-            fig1.tight_layout()
-            st.pyplot(fig1)
-
-            #------------------BOX PLOT------------------------------
-            fig2, ax2 = plt.subplots(figsize=(6, 3))
-            sns.boxplot(
-                data=risk_df,
-                x="SEX",
-                y=col_choice,
-                palette=["paleturquoise", "pink"],
-                ax=ax2
-            )
-            ax2.set_title(f"Box Plot of {col_choice} by Sex", fontsize=12, fontweight="bold")
-            ax2.set_xlabel("SEX")
-            ax2.set_ylabel(col_choice)
-
-            fig2.tight_layout()
-            st.pyplot(fig2)
 
     # ----------------------------------------------------------------
     # WINSORIZATION SUMMARY
