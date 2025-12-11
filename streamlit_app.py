@@ -4,11 +4,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-st.title("Framingham Heart Study")
-st.write(
-    "Let's start building! For help and inspiration, head over to [docs.streamlit.io](https://docs.streamlit.io/)."
-)
-
 # -------------------------------------------------------------------
 # CONFIGURE
 # -------------------------------------------------------------------
@@ -344,7 +339,7 @@ def main():
         )
 
     # ----------------------------------------------------------------
-    # RISK PROFILE BY SEX 
+    # RISK PROFILE BY SEX: add interactive component to shorten table 
     # ----------------------------------------------------------------
     elif view == "Risk profile by sex":
         st.subheader(f"Risk Profile by Sex: Period 1")
