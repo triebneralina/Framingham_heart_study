@@ -4,6 +4,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+
 # -------------------------------------------------------------------
 # CONFIGURE
 # -------------------------------------------------------------------
@@ -388,6 +393,75 @@ def plot_binary_presence_percent_by_sex(df, binary_col, sex_col="SEX"):
     fig.tight_layout()
     return fig
 
+#--------------------------------------------------------------------
+# DATA PREPARATION
+#--------------------------------------------------------------------
+def prepare_model_data(df, outcome_col):
+    """
+    Helper to:
+    - Drop rows with missing values
+    - Split predictors vs outcome
+    - Keep only numeric predictors for modeling
+    """
+    df_clean = df.dropna().copy()
+
+    if outcome_col not in df_clean.columns:
+        raise KeyError(f"Outcome column {outcome_col} not found in dataframe.")
+
+    y = df_clean[outcome_col].astype(int)
+    X = df_clean.drop(columns=[outcome_col])
+
+    # keep numeric predictors only
+    X = X.select_dtypes(include=[np.number])
+
+    return X, y
+
+
+def train_test_and_scale(X, y, test_size=0.3, random_state=42):
+    """
+    Train/test split + standardization of numeric predictors.
+    Returns:
+      X_train, X_test, y_train, y_test, X_train_scaled_df, X_test_scaled_df, scaler
+    """
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y,
+        test_size=test_size,
+        stratify=y,
+        random_state=random_state,
+    )
+
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+
+    # Wrap back into DataFrames for easier viewing
+    X_train_scaled_df = pd.DataFrame(X_train_scaled, columns=X_train.columns, index=X_train.index)
+    X_test_scaled_df = pd.DataFrame(X_test_scaled, columns=X_test.columns, index=X_test.index)
+
+    return X_train, X_test, y_train, y_test, X_train_scaled_df, X_test_scaled_df, scaler
+
+
+def plot_corr_heatmap(df, title):
+    """
+    Correlation heatmap for numeric columns in df.
+    """
+    numeric_df = df.select_dtypes(include=[np.number])
+    corr = numeric_df.corr()
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    sns.heatmap(
+        corr,
+        cmap="coolwarm",
+        center=0,
+        square=True,
+        annot=False,
+        ax=ax,
+    )
+    ax.set_title(title, fontsize=14, fontweight="bold")
+    fig.tight_layout()
+    return fig
+
+
 # -------------------------------------------------------------------
 # MAIN APP
 # -------------------------------------------------------------------
@@ -416,6 +490,8 @@ def main():
             "Consistency checks",
             "Missing data",
             "Winsorization summary",
+            "Modeling: CVD",
+            "Modeling: DEATH",
         ],
     )
 
@@ -712,6 +788,157 @@ def main():
                 )
         if summary_rows:
             st.dataframe(pd.DataFrame(summary_rows))
+
+    # ----------------------------------------------------------------
+    # MODELING: CVD
+    # ----------------------------------------------------------------
+    elif view == "Modeling: CVD":
+        st.subheader("Modeling: Incident CVD (Period 1)")
+
+        st.markdown("### 1. Analytic dataset overview")
+        st.write("Shape of incident CVD dataset (rows, columns):", incident_cvd_df.shape)
+        st.write("Columns:")
+        st.write(list(incident_cvd_df.columns))
+
+        st.write("Class balance (CVD = 0/1):")
+        st.dataframe(incident_cvd_df["CVD"].value_counts().rename("Count").to_frame())
+
+        st.markdown("### 2. Train/test split and standardization")
+
+        # Prepare X, y
+        X_cvd, y_cvd = prepare_model_data(incident_cvd_df, outcome_col="CVD")
+
+        st.write("Predictor matrix shape:", X_cvd.shape)
+        st.write("Outcome vector length:", len(y_cvd))
+
+        # Train/test split + scaling
+        (
+            X_train,
+            X_test,
+            y_train,
+            y_test,
+            X_train_scaled,
+            X_test_scaled,
+            scaler_cvd,
+        ) = train_test_and_scale(X_cvd, y_cvd, test_size=0.3, random_state=42)
+
+        st.write("Training set size:", X_train.shape[0])
+        st.write("Test set size:", X_test.shape[0])
+
+        with st.expander("Show first 5 rows of original vs standardized predictors (train set)"):
+            st.write("Original X_train (head):")
+            st.dataframe(X_train.head())
+            st.write("Standardized X_train (head):")
+            st.dataframe(X_train_scaled.head())
+
+        st.markdown("### 3. Correlation heatmap of predictors")
+        fig_corr = plot_corr_heatmap(X_cvd, "Correlation Heatmap – CVD Predictors")
+        st.pyplot(fig_corr)
+
+        st.markdown("### 4. Logistic regression model – CVD")
+
+        # Fit logistic regression on standardized predictors
+        model_cvd = LogisticRegression(solver="liblinear")
+        model_cvd.fit(X_train_scaled, y_train)
+
+        # Predictions
+        y_train_pred = model_cvd.predict(X_train_scaled)
+        y_test_pred = model_cvd.predict(X_test_scaled)
+
+        train_acc = accuracy_score(y_train, y_train_pred)
+        test_acc = accuracy_score(y_test, y_test_pred)
+
+        st.write(f"Training accuracy: **{train_acc:.3f}**")
+        st.write(f"Test accuracy: **{test_acc:.3f}**")
+
+        # Confusion matrix on test set
+        cm = confusion_matrix(y_test, y_test_pred)
+        cm_df = pd.DataFrame(
+            cm,
+            index=["Actual 0", "Actual 1"],
+            columns=["Pred 0", "Pred 1"],
+        )
+        st.markdown("**Confusion matrix (test set):**")
+        st.dataframe(cm_df)
+
+        # Classification report
+        st.markdown("**Classification report (test set):**")
+        report = classification_report(y_test, y_test_pred, output_dict=False)
+        st.text(report)
+
+    # ----------------------------------------------------------------
+    # MODELING: DEATH
+    # ----------------------------------------------------------------
+    elif view == "Modeling: DEATH":
+        st.subheader("Modeling – All-cause Mortality (Period 1)")
+
+        st.markdown("### 1. Analytic dataset overview")
+        st.write("Shape of incident DEATH dataset (rows, columns):", incident_death_df.shape)
+        st.write("Columns:")
+        st.write(list(incident_death_df.columns))
+
+        st.write("Class balance (DEATH = 0/1):")
+        st.dataframe(incident_death_df["DEATH"].value_counts().rename("Count").to_frame())
+
+        st.markdown("### 2. Train/test split and standardization")
+
+        # Prepare X, y
+        X_death, y_death = prepare_model_data(incident_death_df, outcome_col="DEATH")
+
+        st.write("Predictor matrix shape:", X_death.shape)
+        st.write("Outcome vector length:", len(y_death))
+
+        # Train/test split + scaling
+        (
+            X_train_d,
+            X_test_d,
+            y_train_d,
+            y_test_d,
+            X_train_scaled_d,
+            X_test_scaled_d,
+            scaler_death,
+        ) = train_test_and_scale(X_death, y_death, test_size=0.3, random_state=42)
+
+        st.write("Training set size:", X_train_d.shape[0])
+        st.write("Test set size:", X_test_d.shape[0])
+
+        with st.expander("Show first 5 rows of original vs standardized predictors (train set)"):
+            st.write("Original X_train (head):")
+            st.dataframe(X_train_d.head())
+            st.write("Standardized X_train (head):")
+            st.dataframe(X_train_scaled_d.head())
+
+        st.markdown("### 3. Correlation heatmap of predictors")
+        fig_corr_d = plot_corr_heatmap(X_death, "Correlation Heatmap – DEATH Predictors")
+        st.pyplot(fig_corr_d)
+
+        st.markdown("### 4. Logistic regression model – DEATH")
+
+        model_death = LogisticRegression(solver="liblinear")
+        model_death.fit(X_train_scaled_d, y_train_d)
+
+        y_train_pred_d = model_death.predict(X_train_scaled_d)
+        y_test_pred_d = model_death.predict(X_test_scaled_d)
+
+        train_acc_d = accuracy_score(y_train_d, y_train_pred_d)
+        test_acc_d = accuracy_score(y_test_d, y_test_pred_d)
+
+        st.write(f"Training accuracy: **{train_acc_d:.3f}**")
+        st.write(f"Test accuracy: **{test_acc_d:.3f}**")
+
+        cm_d = confusion_matrix(y_test_d, y_test_pred_d)
+        cm_d_df = pd.DataFrame(
+            cm_d,
+            index=["Actual 0", "Actual 1"],
+            columns=["Pred 0", "Pred 1"],
+        )
+        st.markdown("**Confusion matrix (test set):**")
+        st.dataframe(cm_d_df)
+
+        st.markdown("**Classification report (test set):**")
+        report_d = classification_report(y_test_d, y_test_pred_d, output_dict=False)
+        st.text(report_d)
+
 
 
 if __name__ == "__main__":
