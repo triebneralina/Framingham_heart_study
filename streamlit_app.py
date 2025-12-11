@@ -278,6 +278,7 @@ def plot_missing_bar(missing_info, title):
         y="Missing Percentage",
         data=missing_info,
         ax=ax,
+        color = "paleturquoise"
     )
     ax.set_title(title)
     ax.set_xlabel("Columns")
@@ -393,6 +394,70 @@ def plot_binary_presence_percent_by_sex(df, binary_col, sex_col="SEX"):
     fig.tight_layout()
     return fig
 
+def plot_outcome_cases_by_sex(df, outcome_col, title):
+    """
+    Bar chart of outcome==1 cases by sex, plus a summary table
+    (counts and percentages within sex).
+    Assumes SEX coded as 1=Male, 2=Female.
+    """
+    plt.style.use("ggplot")
+
+    # Filter to cases where outcome == 1
+    cases = df[df[outcome_col] == 1].copy()
+
+    # Count cases by sex (1=Male, 2=Female), ensure both present
+    by_sex = cases["SEX"].value_counts().reindex([1, 2]).fillna(0).astype(int)
+
+    # Bar chart
+    fig, ax = plt.subplots(figsize=(6, 4))
+    labels = by_sex.index.map({1: "Male", 2: "Female"})
+    bars = ax.bar(labels, by_sex.values, color=["paleturquoise", "pink"])
+
+    # Add counts on top of bars
+    for bar in bars:
+        height = bar.get_height()
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            height,
+            f"n = {int(height)}",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+        )
+
+    ax.set_title(title, fontsize=14, fontweight="bold")
+    ax.set_xlabel("Sex")
+    ax.set_ylabel(f"Number of {outcome_col} = 1")
+    fig.tight_layout()
+
+    # Build summary table: totals, cases, no-cases, percentages, diff check
+    rows = []
+    sex_label_map = {1: "Male", 2: "Female"}
+    for sex_code in [1, 2]:
+        label = sex_label_map.get(sex_code, str(sex_code))
+
+        total = (df["SEX"] == sex_code).sum()
+        cases_sex = ((df["SEX"] == sex_code) & (df[outcome_col] == 1)).sum()
+        no_cases_sex = ((df["SEX"] == sex_code) & (df[outcome_col] == 0)).sum()
+        diff = total - (cases_sex + no_cases_sex)
+        pct = (cases_sex / total * 100) if total > 0 else np.nan
+
+        rows.append(
+            {
+                "Sex": label,
+                "Total": total,
+                f"{outcome_col} = 1 (cases)": cases_sex,
+                f"{outcome_col} = 0 (non-cases)": no_cases_sex,
+                "Cases %": pct,
+                "Check (Total - (cases + non-cases))": diff,
+            }
+        )
+
+    summary_df = pd.DataFrame(rows)
+
+    return fig, summary_df
+
+
 #--------------------------------------------------------------------
 # DATA PREPARATION
 #--------------------------------------------------------------------
@@ -486,7 +551,6 @@ def main():
             "Raw data overview",
             "Risk profile by sex",
             "Outcomes by sex",
-            "Outcome event rates",
             "Consistency checks",
             "Missing data",
             "Winsorization summary",
@@ -531,27 +595,40 @@ def main():
         if risk_df.empty:
             st.warning("No risk profile columns found for this period.")
         else:
-            grouped = risk_df.groupby("SEX")
-            st.write("**Grouped by SEX - first rows from each group:**")
-            st.dataframe(grouped.head().sort_values(by="SEX"))
-
-            st.write("**Descriptive statistics by SEX:**")
-            st.dataframe(grouped.describe())
-
-            # Reshape like notebook (describe -> transpose, etc.)
-            desc_stats = grouped.describe()
-            desc_stats_transposed = desc_stats.T
-            desc_stats_transposed.columns = [
-                f"SEX_{col}" for col in desc_stats_transposed.columns
-            ]
-            desc_stats_final = desc_stats_transposed.reset_index()
-            desc_stats_final.rename(
-                columns={"level_0": "Variable", "level_1": "Statistic"},
-                inplace=True,
+            # Choose a variable- avoids table with 120 columns
+            variable = st.selectbox(
+                "Select a variable to view summary statistics:",
+                RISK_PROFILE_COLUMNS
             )
 
-            st.write("**Reshaped descriptive statistics (rows = variable/statistic):**")
-            st.dataframe(desc_stats_final)
+            st.subheader(f"Summary Statistics for {variable} by Sex")
+
+            if variable not in risk_df.columns:
+                st.warning(f"{variable} is not in the dataframe.")
+            else:
+                # Group by sex for selected variable
+                grouped = risk_df.groupby("SEX")[variable]
+
+                # Compute descriptive statistics
+                stats = grouped.describe().T
+
+                # Map SEX codes to readable column names
+                stats.columns = [
+                    "Male" if col == 1 else "Female" if col == 2 else str(col)
+                    for col in stats.columns
+                ]
+
+                # Optional: nicer index name
+                stats.index.name = "Statistic"
+
+                st.dataframe(stats)
+
+            # (Optional) keep this if you still want to see some raw rows
+            with st.expander("Show first rows grouped by sex"):
+                st.dataframe(
+                    risk_df.groupby("SEX").head().sort_values(by="SEX")
+                )
+
 
         #-------------------Continuous distributions---------------------------------------    
         st.subheader(f"Distributions of Continuous Risk Profile Variables")
@@ -612,11 +689,54 @@ def main():
             st.write("**Descriptive statistics by SEX:**")
             st.dataframe(grouped.describe())
 
-    # ----------------------------------------------------------------
-    # OUTCOME EVENT RATES FOR ALL PERIODS
-    # ----------------------------------------------------------------
-    elif view == "Outcome event rates":
-        st.subheader("Outcome Event Counts and Percentages")
+    # ----------Bar Plots------------------------------------------------------
+        st.subheader("Visualization of outcomes")
+
+        outcomes_df = make_outcomes_df(period1_df)
+
+        st.write("**Outcome columns used:**")
+        st.write(OUTCOME_COLUMNS)
+
+        if outcomes_df.empty:
+            st.warning("No outcome columns found for this period.")
+        else:
+            # --- CVD ---
+            if "CVD" in outcomes_df.columns:
+                st.markdown("### CVD cases by sex")
+
+                fig_cvd, summary_cvd = plot_outcome_cases_by_sex(
+                    outcomes_df,
+                    outcome_col="CVD",
+                    title="CVD Cases by Sex (Period 1)",
+                )
+                st.pyplot(fig_cvd)
+
+                st.write("**CVD counts & percentages by sex:**")
+                st.dataframe(summary_cvd)
+            else:
+                st.info("CVD column not found in the dataset.")
+
+            st.markdown("---")
+
+            # --- DEATH ---
+            if "DEATH" in outcomes_df.columns:
+                st.markdown("### Deaths by sex")
+
+                fig_death, summary_death = plot_outcome_cases_by_sex(
+                    outcomes_df,
+                    outcome_col="DEATH",
+                    title="Deaths by Sex (Period 1)",
+                )
+                st.pyplot(fig_death)
+
+                st.write("**Death counts & percentages by sex:**")
+                st.dataframe(summary_death)
+            else:
+                st.info("DEATH column not found in the dataset.")
+        
+
+        #-----------------Outcome event rates--------------------------------
+        st.subheader("Overall Outcome Event Counts and Percentages")
 
         rows = []
         for col in OUTCOME_COLUMNS_FOR_COUNTS:
