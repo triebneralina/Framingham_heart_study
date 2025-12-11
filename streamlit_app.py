@@ -70,7 +70,6 @@ CONTINUOUS_COLUMNS_ONLY = [
 ]
 
 BINARY_COLUMNS_ONLY = [    
-    "SEX",
     "CURSMOKE",
     "DIABETES",
     "PREVHYP",
@@ -210,7 +209,7 @@ def check_smoking_consistency(period1_df):
     """
     if "CURSMOKE" not in period1_df.columns or "CIGPDAY" not in period1_df.columns:
         return pd.DataFrame()
-    inconsistent_data = df[(df["CURSMOKE"] == 0) & (df["CIGPDAY"] > 0)]
+    inconsistent_data = period1_df[(period1_df["CURSMOKE"] == 0) & (period1_df["CIGPDAY"] > 0)]
     return inconsistent_data
 
 
@@ -340,73 +339,54 @@ def plot_distribution_by_sex(df, col):
     fig_box = plot_box_by_sex(df, col)
     return fig_hist, fig_box
 
-def plot_binary_bar_by_sex_percent(df, binary_col, sex_col="SEX"):
+def plot_binary_presence_percent_by_sex(df, binary_col, sex_col="SEX"):
     """
-    Grouped bar chart for a binary variable by sex, showing P(0) and P(1) as percentages.
+    Plot percentage of individuals with binary_col == 1 within each sex.
+    One bar per sex:
+        - Male (paleturquoise)
+        - Female (pink)
     """
 
     plt.style.use("ggplot")
 
-    # Drop rows where either sex or the binary variable is missing
+    # Keep only sex + variable
     data = df[[sex_col, binary_col]].dropna().copy()
 
-    # Ensure binary_col really only has 0/1 (or is at least treated as such)
-    # Compute percentage distribution of 0/1 within each sex
-    pct_table = (
+    # Compute the percentage of "1" per sex
+    pct = (
         data.groupby(sex_col)[binary_col]
-            .value_counts(normalize=True)   # proportions within sex
-            .rename("percentage")
-            .reset_index()
+        .apply(lambda x: (x == 1).mean() * 100)
+        .reindex([1, 2])      # Ensure order: Male, Female
     )
-    pct_table["percentage"] = pct_table["percentage"] * 100  # to %
 
+    # Map sex codes → labels
     sex_label_map = {1: "Male", 2: "Female"}
-    pct_table["sex_label"] = pct_table[sex_col].map(
-        lambda x: sex_label_map.get(x, str(x))
-    )
+    labels = [sex_label_map.get(s, str(s)) for s in pct.index]
 
-    sex_color_map = {
-        "Male": "paleturquoise",
-        "Female": "pink"
-    }
+    # Colors by sex
+    colors = ["paleturquoise", "pink"]
 
-    fig, ax = plt.subplots(figsize=(7, 4))
+    fig, ax = plt.subplots(figsize=(6, 4))
+    bars = ax.bar(labels, pct.values, color=colors)
 
-    sns.barplot(
-        data = pct_table,
-        x = "sex_label",
-        y = "percentage",
-        hue = "binary_str",
-        dodge = True,
-        palette = [sex_color_map[label] for label in pct_table["sex_label"].unique()],
-        ax = ax,
-    )
+    # Label percentages on top of bars
+    for bar in bars:
+        height = bar.get_height()
+        ax.text(
+            bar.get_x() + bar.get_width()/2,
+            height,
+            f"{height:.1f}%",
+            ha="center",
+            va="bottom",
+            fontsize=10,
+        )
 
-    # Add percentage labels on top of bars
-    for container in ax.containers:
-        for bar in container:
-            height = bar.get_height()
-            if not np.isnan(height) and height > 0:
-                ax.text(
-                    bar.get_x() + bar.get_width() / 2,
-                    height,
-                    f"{height:.1f}%",
-                    ha="center",
-                    va="bottom",
-                    fontsize=9,
-                )
-
-    ax.set_title(f"{binary_col} Distribution By Sex", fontsize=14, fontweight="bold")
+    ax.set_title(f"{binary_col} (value = 1) by Sex", fontsize=14, fontweight="bold")
     ax.set_xlabel("Sex")
-    ax.set_ylabel("Percentage within sex (%)")
-    ax.legend(title=f"{binary_col} value", labels=["0", "1"])
+    ax.set_ylabel("Percentage (%)")
 
     fig.tight_layout()
     return fig
-
-
-
-
 
 # -------------------------------------------------------------------
 # MAIN APP
@@ -497,7 +477,8 @@ def main():
 
             st.write("**Reshaped descriptive statistics (rows = variable/statistic):**")
             st.dataframe(desc_stats_final)
-            
+
+        #-------------------Continuous distributions---------------------------------------    
         st.subheader(f"Distributions of Continuous Risk Profile Variables")
 
         risk_df = make_risk_profile_df(period1_df)
@@ -509,13 +490,35 @@ def main():
         if not numeric_cols:
             st.warning("No numeric risk profile columns found for this period.")
         else:
-            col_choice = st.selectbox("Select a continuous numeric column to plot", numeric_cols)
+            col_choice = st.selectbox("Select a continuous variable to plot", numeric_cols)
             fig_hist, fig_box = plot_distribution_by_sex(risk_df, col_choice)
 
             st.pyplot(fig_hist)
             st.pyplot(fig_box)
 
+        #---------------------------Binary Distributions----------------------------------------------
+        ##FIX LEGEND (0/1) COLOURS
         st.subheader(f"Distributions of Binary Risk Profile Variables")
+        
+        risk_df = make_risk_profile_df(period1_df)
+        binary_cols = [
+            c for c in BINARY_COLUMNS_ONLY
+            if c in risk_df.columns and pd.api.types.is_numeric_dtype(risk_df[c])
+        ]        
+        if not binary_cols:
+            st.warning("No binary variables found in the risk profile.")
+        else:
+            bin_choice = st.selectbox(
+                "Select binary variable to plot",
+                binary_cols,
+            )
+
+            fig_bar = plot_binary_presence_percent_by_sex(
+                period1_df,
+                binary_col=bin_choice,
+                sex_col="SEX",
+            )
+            st.pyplot(fig_bar)
     # ----------------------------------------------------------------
     # OUTCOMES BY SEX
     # ----------------------------------------------------------------
