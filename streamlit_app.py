@@ -715,12 +715,26 @@ def main():
     #----------------------------------------------------------------
     # RESEARCH QUESTION
     #----------------------------------------------------------------
+    if view == "Research question":
+        st.subheader("Research Question")
+        st.markdown("PICOT formatted research question:")
+        st.info("In adults in the Framingham Heart Study (P), "\
+            "how well do baseline cardiovascular risk factors, including sex (I), " \
+            "predict incident cardiovascular events and all-cause mortality over 24 years (O, T), "
+            "and does predictive performance or estimated risk differ between men and women (C)? ")
+        
+        st.subheader("Aim")
+        st.markdown("""
+                    **The aims of this analysis are to:**
+                    1. Describe gender differences in risk factors
+                    2. Build predictive models for selected outcomes
+                    """)
 
     
     # ----------------------------------------------------------------
     # RAW DATA OVERVIEW
     # ----------------------------------------------------------------
-    if view == "Raw data overview":
+    elif view == "Raw data overview":
         st.subheader("Raw Data: Period 1")
         st.info("""
                 We restrict the analysis to **Period 1** due to inconsistencies between study periods.
