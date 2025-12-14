@@ -8,6 +8,10 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+from sklearn.model_selection import StratifiedKFold, cross_validate
+from sklearn.metrics import roc_curve, auc, RocCurveDisplay
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.svm import SVC
 
 # -------------------------------------------------------------------
 # CONFIGURE
@@ -216,6 +220,40 @@ def check_smoking_consistency(period1_df):
         return pd.DataFrame()
     inconsistent_data = period1_df[(period1_df["CURSMOKE"] == 0) & (period1_df["CIGPDAY"] > 0)]
     return inconsistent_data
+
+def prev_consistency_checks(df):
+    """
+    Returns a dictionary of inconsistency dataframes for PREV* logical checks.
+    """
+    prev_cols = ["PREVCHD", "PREVAP", "PREVMI", "PREVSTRK"]
+    present = [c for c in prev_cols if c in df.columns]
+
+    results = {}
+
+    # 1) Non-binary values check
+    non_binary = pd.DataFrame()
+    for c in present:
+        bad = df[~df[c].dropna().isin([0, 1])]
+        if not bad.empty:
+            non_binary = bad[[c]].copy()
+            break
+    results["Non-binary PREV* values"] = non_binary
+
+    # 2) PREVCHD == 0 but PREVMI == 1 or PREVAP == 1
+    if "PREVCHD" in df.columns and ("PREVMI" in df.columns or "PREVAP" in df.columns):
+        cond = (df["PREVCHD"] == 0) & (
+            (df["PREVMI"] == 1 if "PREVMI" in df.columns else False)
+            | (df["PREVAP"] == 1 if "PREVAP" in df.columns else False)
+        )
+        results["PREVCHD=0 but PREVMI or PREVAP = 1"] = df.loc[cond, ["PREVCHD", "PREVMI", "PREVAP"]].copy()
+
+    # 3) PREVCHD == 1 but PREVMI == 0 and PREVAP == 0 (suspicious)
+    if "PREVCHD" in df.columns and "PREVMI" in df.columns and "PREVAP" in df.columns:
+        cond = (df["PREVCHD"] == 1) & (df["PREVMI"] == 0) & (df["PREVAP"] == 0)
+        results["PREVCHD=1 but PREVMI=0 and PREVAP=0"] = df.loc[cond, ["PREVCHD", "PREVMI", "PREVAP"]].copy()
+
+
+    return results
 
 
 def compute_missing_info(df):
@@ -526,6 +564,119 @@ def plot_corr_heatmap(df, title):
     fig.tight_layout()
     return fig
 
+#--------------------------------------------------------------------
+# MODELS
+#--------------------------------------------------------------------
+def get_models(random_state=42):
+    return {
+        "LogReg (balanced)": LogisticRegression(
+            solver="liblinear",  #We used the liblinear solver because it is well suited for binary logistic regression with moderate sample sizes and class imbalance.
+            class_weight="balanced",
+            max_iter=1000,
+        ),
+        "Random Forest (balanced)": RandomForestClassifier(
+            n_estimators=300,
+            random_state=random_state,
+            class_weight="balanced",
+        ),
+        "SVM (balanced)": SVC(
+            kernel="rbf",
+            class_weight="balanced",
+            probability=True,   # needed for ROC/AUC
+            random_state=random_state,
+        ),
+    }
+
+
+def run_cross_validation(models, X, y, n_splits=5, random_state=42):
+    """
+    Returns a dataframe of mean CV scores for each model.
+    Uses stratified k-fold and multiple metrics like in Colab.
+    """
+    cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+
+    scoring = {
+        "accuracy": "accuracy",
+        "precision": "precision",
+        "recall": "recall",
+        "f1": "f1",
+        "roc_auc": "roc_auc",
+    }
+
+    rows = []
+    for name, model in models.items():
+        scores = cross_validate(model, X, y, cv=cv, scoring=scoring, n_jobs=-1)
+        rows.append(
+            {
+                "Model": name,
+                "CV Accuracy (mean)": np.mean(scores["test_accuracy"]),
+                "CV Precision (mean)": np.mean(scores["test_precision"]),
+                "CV Recall (mean)": np.mean(scores["test_recall"]),
+                "CV F1 (mean)": np.mean(scores["test_f1"]),
+                "CV ROC AUC (mean)": np.mean(scores["test_roc_auc"]),
+            }
+        )
+
+    return pd.DataFrame(rows).sort_values(by="CV ROC AUC (mean)", ascending=False)
+
+
+def fit_models_and_eval(models, X_train_scaled, X_test_scaled, y_train, y_test):
+    """
+    Fits each model on train, evaluates on test.
+    Returns:
+      results_df, confusion_matrices_dict, classification_reports_dict, roc_data_dict
+    """
+    results = []
+    conf_mats = {}
+    reports = {}
+    roc_data = {}  # name -> (fpr, tpr, auc)
+
+    for name, model in models.items():
+        model.fit(X_train_scaled, y_train)
+
+        y_pred = model.predict(X_test_scaled)
+        test_acc = accuracy_score(y_test, y_pred)
+
+        conf_mats[name] = confusion_matrix(y_test, y_pred)
+        reports[name] = classification_report(y_test, y_pred, output_dict=False)
+
+        # ROC (need probabilities)
+        if hasattr(model, "predict_proba"):
+            y_prob = model.predict_proba(X_test_scaled)[:, 1]
+            fpr, tpr, _ = roc_curve(y_test, y_prob)
+            roc_auc = auc(fpr, tpr)
+            roc_data[name] = (fpr, tpr, roc_auc)
+
+        results.append({"Model": name, "Test Accuracy": test_acc})
+
+    results_df = pd.DataFrame(results).sort_values(by="Test Accuracy", ascending=False)
+    return results_df, conf_mats, reports, roc_data
+
+
+def plot_roc_comparison(roc_data, title):
+    """Overlay ROC curves for multiple models."""
+    fig, ax = plt.subplots(figsize=(7, 5))
+    for name, (fpr, tpr, roc_auc) in roc_data.items():
+        ax.plot(fpr, tpr, label=f"{name} (AUC = {roc_auc:.3f})")
+
+    ax.plot([0, 1], [0, 1], linestyle="--")
+    ax.set_title(title, fontsize=14, fontweight="bold")
+    ax.set_xlabel("False Positive Rate")
+    ax.set_ylabel("True Positive Rate")
+    ax.legend()
+    fig.tight_layout()
+    return fig
+
+def predict_with_threshold(model, X, threshold=0.5):
+    """
+    Returns y_prob (P(class=1)) and y_pred based on a custom threshold.
+    Requires model to support predict_proba.
+    """
+    y_prob = model.predict_proba(X)[:, 1]
+    y_pred = (y_prob >= threshold).astype(int)
+    return y_prob, y_pred
+
+
 
 # -------------------------------------------------------------------
 # MAIN APP
@@ -788,10 +939,18 @@ def main():
             st.dataframe(inconsistent_data[["CURSMOKE", "CIGPDAY"]].head(20))
         
         #----------------PREV Consistency----------------------------
+        st.markdown("---")
+        st.subheader("PREV* consistency checks (baseline medical history)")
 
+        prev_checks = prev_consistency_checks(period1_df)
 
-
-        
+        for check_name, bad_rows in prev_checks.items():
+            st.markdown(f"### {check_name}")
+            if bad_rows.empty:
+                st.success("No inconsistencies found.")
+            else:
+                st.error(f"Found {len(bad_rows)} inconsistent/suspicious rows.")
+                st.dataframe(bad_rows.head(20))
 
     # ----------------------------------------------------------------
     # MISSING DATA
@@ -1033,10 +1192,12 @@ def main():
         fig_corr = plot_corr_heatmap(X_cvd, "Correlation Heatmap – CVD Predictors")
         st.pyplot(fig_corr)
 
-        st.markdown("### 4. Logistic regression model – CVD")
+        st.markdown("### 4. Baseline Logistic regression model CVD (Unbalanced)")
+        st.caption( "This baseline model uses standard logistic regression without class balancing," \
+        "serving as a reference point for comparison with more advanced models.")
 
         # Fit logistic regression on standardized predictors
-        model_cvd = LogisticRegression(solver="liblinear")
+        model_cvd = LogisticRegression(solver="liblinear", max_iter = 1000)
         model_cvd.fit(X_train_scaled, y_train)
 
         # Predictions
@@ -1064,11 +1225,82 @@ def main():
         report = classification_report(y_test, y_test_pred, output_dict=False)
         st.text(report)
 
+        st.markdown("### 5. Compare models (LogReg, Random Forest, SVM)")
+
+        models = get_models(random_state=42)
+
+        # --- Cross-validation on TRAINING DATA ONLY (best practice) ---
+        st.markdown("#### 5-fold Cross-Validation (on training set)")
+        cv_summary = run_cross_validation(models, X_train_scaled, y_train, n_splits=5, random_state=42)
+        st.dataframe(cv_summary)
+
+        # --- Fit models + evaluate on test set ---
+        st.markdown("#### Test Set Performance")
+        results_df, conf_mats, reports, roc_data = fit_models_and_eval(
+            models,
+            X_train_scaled, X_test_scaled,
+            y_train, y_test
+        )
+        st.dataframe(results_df)
+
+        # Choose a model to inspect details
+        model_choice = st.selectbox("Select model for detailed metrics:", list(models.keys()), key="cvd_model_select")
+
+        st.markdown("**Confusion matrix (test set):**")
+        cm = conf_mats[model_choice]
+        st.dataframe(pd.DataFrame(cm, index=["Actual 0", "Actual 1"], columns=["Pred 0", "Pred 1"]))
+
+        st.markdown("**Classification report (test set):**")
+        st.text(reports[model_choice])
+
+        # ROC comparison plot (only models with predict_proba)
+        if roc_data:
+            st.markdown("#### ROC Curves (test set)")
+            fig_roc = plot_roc_comparison(roc_data, "ROC Curve Comparison – CVD")
+            st.pyplot(fig_roc)
+        else:
+            st.info("No ROC data available (models missing predict_proba).")
+
+            st.markdown("### Threshold tuning (test set)")
+
+        chosen_model = models[model_choice]
+
+        if not hasattr(chosen_model, "predict_proba"):
+            st.info("This model does not support probability outputs (predict_proba). Threshold tuning unavailable.")
+        else:
+            threshold = st.slider(
+                "Select probability threshold for class=1",
+                min_value=0.05,
+                max_value=0.95,
+                value=0.50,
+                step=0.05,
+                key="cvd_threshold_slider",
+            )
+
+            y_prob, y_pred_thr = predict_with_threshold(chosen_model, X_test_scaled, threshold=threshold)
+
+            acc_thr = accuracy_score(y_test, y_pred_thr)
+            cm_thr = confusion_matrix(y_test, y_pred_thr)
+
+            st.write(f"Accuracy at threshold {threshold:.2f}: **{acc_thr:.3f}**")
+
+            st.markdown("**Confusion matrix (threshold tuned):**")
+            st.dataframe(
+                pd.DataFrame(
+                    cm_thr,
+                    index=["Actual 0", "Actual 1"],
+                    columns=["Pred 0", "Pred 1"],
+                )
+            )
+
+            st.markdown("**Classification report (threshold tuned):**")
+            st.text(classification_report(y_test, y_pred_thr, output_dict=False))
+
     # ----------------------------------------------------------------
     # MODELING: DEATH
     # ----------------------------------------------------------------
     elif view == "Modeling: DEATH":
-        st.subheader("Modeling – All-cause Mortality (Period 1)")
+        st.subheader("Modeling: All-cause Mortality (Period 1)")
 
         st.markdown("### 1. Analytic dataset overview")
         st.write("Shape of incident DEATH dataset (rows, columns):", incident_death_df.shape)
@@ -1107,10 +1339,10 @@ def main():
             st.dataframe(X_train_scaled_d.head())
 
         st.markdown("### 3. Correlation heatmap of predictors")
-        fig_corr_d = plot_corr_heatmap(X_death, "Correlation Heatmap – DEATH Predictors")
+        fig_corr_d = plot_corr_heatmap(X_death, "Correlation Heatmap: DEATH Predictors")
         st.pyplot(fig_corr_d)
 
-        st.markdown("### 4. Logistic regression model – DEATH")
+        st.markdown("### 4. Baseline Logistic regression model DEATH (Unbalanced)")
 
         model_death = LogisticRegression(solver="liblinear")
         model_death.fit(X_train_scaled_d, y_train_d)
@@ -1136,6 +1368,74 @@ def main():
         st.markdown("**Classification report (test set):**")
         report_d = classification_report(y_test_d, y_test_pred_d, output_dict=False)
         st.text(report_d)
+        
+        st.markdown("### 5. Compare models (LogReg, Random Forest, SVM)")
+
+        models = get_models(random_state=42)
+
+        st.markdown("#### 5-fold Cross-Validation (on training set)")
+        cv_summary = run_cross_validation(models, X_train_scaled_d, y_train_d, n_splits=5, random_state=42)
+        st.dataframe(cv_summary)
+
+        st.markdown("#### Test Set Performance")
+        results_df, conf_mats, reports, roc_data = fit_models_and_eval(
+            models,
+            X_train_scaled_d, X_test_scaled_d,
+            y_train_d, y_test_d
+        )
+        st.dataframe(results_df)
+
+        model_choice = st.selectbox("Select model for detailed metrics:", list(models.keys()), key="death_model_select")
+
+        st.markdown("**Confusion matrix (test set):**")
+        cm = conf_mats[model_choice]
+        st.dataframe(pd.DataFrame(cm, index=["Actual 0", "Actual 1"], columns=["Pred 0", "Pred 1"]))
+
+        st.markdown("**Classification report (test set):**")
+        st.text(reports[model_choice])
+
+        if roc_data:
+            st.markdown("#### ROC Curves (test set)")
+            fig_roc = plot_roc_comparison(roc_data, "ROC Curve Comparison – DEATH")
+            st.pyplot(fig_roc)
+        else:
+            st.info("No ROC data available (models missing predict_proba).")
+
+        st.markdown("### Threshold tuning (test set)")
+
+        chosen_model = models[model_choice]
+
+        if not hasattr(chosen_model, "predict_proba"):
+            st.info("This model does not support probability outputs (predict_proba). Threshold tuning unavailable.")
+        else:
+            threshold = st.slider(
+                "Select probability threshold for class=1",
+                min_value=0.05,
+                max_value=0.95,
+                value=0.50,
+                step=0.05,
+                key="death_threshold_slider",
+            )
+
+            y_prob, y_pred_thr = predict_with_threshold(chosen_model, X_test_scaled_d, threshold=threshold)
+
+            acc_thr = accuracy_score(y_test_d, y_pred_thr)
+            cm_thr = confusion_matrix(y_test_d, y_pred_thr)
+
+            st.write(f"Accuracy at threshold {threshold:.2f}: **{acc_thr:.3f}**")
+
+            st.markdown("**Confusion matrix (threshold tuned):**")
+            st.dataframe(
+                pd.DataFrame(
+                    cm_thr,
+                    index=["Actual 0", "Actual 1"],
+                    columns=["Pred 0", "Pred 1"],
+                )
+            )
+
+            st.markdown("**Classification report (threshold tuned):**")
+            st.text(classification_report(y_test_d, y_pred_thr, output_dict=False))
+
 
 
 
