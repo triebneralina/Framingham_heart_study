@@ -681,9 +681,10 @@ def predict_with_threshold(model, X, threshold=0.5):
 # -------------------------------------------------------------------
 # MAIN APP
 # -------------------------------------------------------------------
+
 def main():
     st.title("Framingham Heart Study: CVD Risk Analysis by Sex")
-    st.write("Interactive report on the loading, cleaning and analytic datasets")
+    st.write("Interactive report on the loading, cleaning and analysis of the Framingham dataset")
 
     # Load data
     df = load_data()
@@ -699,6 +700,7 @@ def main():
     view = st.sidebar.radio(
         "View",
         [
+            "Research question",
             "Raw data overview",
             "Risk profile by sex",
             "Outcomes by sex",
@@ -710,11 +712,29 @@ def main():
         ],
     )
 
+    #----------------------------------------------------------------
+    # RESEARCH QUESTION
+    #----------------------------------------------------------------
+
+    
     # ----------------------------------------------------------------
     # RAW DATA OVERVIEW
     # ----------------------------------------------------------------
     if view == "Raw data overview":
         st.subheader("Raw Data: Period 1")
+        st.info("""
+                We restrict the analysis to **Period 1** due to inconsistencies between study periods.
+                
+        **Benefits:**
+        - Allows for clearer baseline analysis of risk factors and outcomes
+        - Minimises bias introduced by the later exclusion of dead participants
+        - Allows for less distribution noise as data collection methods are consistent within each period but differ between them (time period differences)
+       
+         **Disadvantages:**
+        - Resulted in a smaller dataset, reducing statistical power (Larger variance, risk of overfitting, may not be a good fit for “data-hungry” ML models.
+        -Poor generalizability for modern populations (period 1 is the oldest)
+        - Does not allow observations of longitudinal disease and risk progression
+       """)
 
         st.write("**Header: Period 1**")
         st.dataframe(period1_df.head(10))
@@ -733,7 +753,7 @@ def main():
         )
 
     # ----------------------------------------------------------------
-    # RISK PROFILE BY SEX: add interactive component to shorten table 
+    # RISK PROFILE BY SEX: 
     # ----------------------------------------------------------------
     elif view == "Risk profile by sex":
         st.subheader(f"Risk Profile by Sex: Period 1")
@@ -742,6 +762,7 @@ def main():
 
         st.write("**Selected risk profile columns:**")
         st.write(RISK_PROFILE_COLUMNS)
+        st.info("Add section on why we chose these colums")
 
         if risk_df.empty:
             st.warning("No risk profile columns found for this period.")
@@ -822,8 +843,18 @@ def main():
                 sex_col="SEX",
             )
             st.pyplot(fig_bar)
+
+        st.subheader("Discussion")
+        st.info("""
+                Here we looked at the risk profile distributions for males and females as a part of EDA. At this stage, we noticed some things:
+                - Box plots show  good ampunt of outliers, we will address this later 
+                - hen checking the CIGPDAY feature, there was a peak for n=20. This is the number of cigarettes in a pack, and could reflect some rounding down / up which could introduce bias 
+                - More females were being treated with BPMEDS than men. This reflects baseline differences in treatment (rather than risk), a potential confounding factor.
+                - In all previous incidences, males had more incidences than women for all
+                """)
+
     # ----------------------------------------------------------------
-    # OUTCOMES BY SEX: ADD BAR PLOTS !!!!!
+    # OUTCOMES BY SEX: 
     # ----------------------------------------------------------------
     elif view == "Outcomes by sex":
         st.subheader(f"Outcomes Profile by Sex: Period 1")
@@ -917,6 +948,18 @@ def main():
                 )
         st.dataframe(pd.DataFrame(rows))
 
+        st.subheader("Discussion")
+        st.info("""
+                These distributions differ clearly from what we know today:
+                - The sex gap is much larger (around a 16% difference) than the one observed today.
+                - Nowadays most modern studies show an increased incidence of CVD and CVD-related deaths than men - the opposite is shown by the data
+
+                We believe this difference reflects historical context:
+                - CVD diagnosis was based on male expression of the diseases, leading to women being under-diagnosed in that time. This explains women seeming more protected in our data.
+                - CVD-related deaths are less prevalent nowadays due to modern medicine being much more effective, as well as the recognition of sex differences in disease
+                """)
+
+
     # ----------------------------------------------------------------
     # CONSISTENCY
     # ----------------------------------------------------------------
@@ -941,7 +984,15 @@ def main():
         #----------------PREV Consistency----------------------------
         st.markdown("---")
         st.subheader("PREV* consistency checks (baseline medical history)")
-
+        st.info(""""
+                We performed a coherence check on the binary variables PrevCHD, PrevMI, and PrevAP.
+                PrevCHD was required to be consistent with PrevMI and PrevAP (since it is a combined variable for those 2)
+                : if either PrevMI or PrevAP equaled 1, then PrevCHD had to equal 1; 
+                Our initial reasoning was that, conversely
+                PrevCHD could only equal 0 when both PrevMI and PrevAP equaled 0. When we found some inconsistencies, we re-examined this premise.
+                Since Coronary heart disease is am umbrella term, it is possible that these inconsistencies stem from a different coronary heart disease, which is why we decided to keep the inconsistent rows.
+                """)
+                 
         prev_checks = prev_consistency_checks(period1_df)
 
         for check_name, bad_rows in prev_checks.items():
@@ -951,6 +1002,7 @@ def main():
             else:
                 st.error(f"Found {len(bad_rows)} inconsistent/suspicious rows.")
                 st.dataframe(bad_rows.head(20))
+
 
     # ----------------------------------------------------------------
     # MISSING DATA
@@ -1019,6 +1071,12 @@ def main():
                 fig = plot_missing_bar(missing_info_df, f"Percentage of missing values - {name}")
                 st.pyplot(fig)
 
+        st.subheader("Dealing with the missing values")
+        st.info(""""
+                The features that had missing values never had a missingness percentage higher than 5% so we dropped these. 
+                Our dataset is small to begin with, so data imputation would not be smart because it risks introducing data leakage.
+                """)
+
     # ----------------------------------------------------------------
     # WINSORIZATION SUMMARY
     # ----------------------------------------------------------------
@@ -1047,6 +1105,29 @@ def main():
 
         st.markdown("### Descriptive Statistics Before Winsorization")
         st.dataframe(before_stats)
+
+        st.info("""
+                We addressed outliers by selecting physiological limits and winsorising at these values for numerical risk factors. 
+                These were the ranges we accepted, anything above or below was winsorised:
+                
+                Age: 18-110
+                
+                Cigpday: <80
+                
+                BMI: 10-70
+                
+                SYSBP: 60-300
+                
+                DIASBP: 30-150
+                
+                HR: 30 - (220- 32)
+                
+                TOTCHOL: 70-600
+                
+                Then we visualised our descriptive statistics and distributions following outlier handling.
+                """)
+
+
 
         st.markdown("### Descriptive Statistics After Winsorization")
         st.dataframe(after_stats)
@@ -1154,6 +1235,8 @@ def main():
 
         st.markdown("### 1. Analytic dataset overview")
         st.write("Shape of incident CVD dataset (rows, columns):", incident_cvd_df.shape)
+
+        st.info("Why did we choose these")
         st.write("Columns:")
         st.write(list(incident_cvd_df.columns))
 
