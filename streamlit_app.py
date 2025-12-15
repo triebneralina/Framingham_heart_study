@@ -751,7 +751,7 @@ def main():
         st.info("In adults in the Framingham Heart Study (P), "\
             "how well do baseline cardiovascular risk factors, including sex (I), " \
             "predict incident cardiovascular events and all-cause mortality over 24 years (O, T), "
-            "and does predictive performance or estimated risk differ between men and women (C)? ")
+            "and does baseline risk factor distributiondiffer between men and women (C)? ")
         
         st.subheader("Aim")
         st.markdown("""
@@ -1650,7 +1650,7 @@ def main():
         st.write("""
                  Our RQ: “In adults in the Framingham Heart Study (P), how well do baseline cardiovascular risk factors, 
                  including sex (I), predict incident cardiovascular events and all-cause mortality over 24 years (O, T), 
-                 and does predictive performance or estimated risk differ between men and women (C)?”
+                 and does baseline risk factor distributiondiffer between men and women (C)?”
                 
                  To answer this question, we began by performing exploratory data analysis, visualising and using descriptive 
                  statistics to observe the risk profiles and outcomes by sex in Period 1.
@@ -1667,7 +1667,7 @@ def main():
                 We plotted our data again to observe changes before and after our cleaning.
                  
                  Before Standardisation, we performed the train/test split for both our CVD and Death df.
-                 Then, we standardised our data by (I'm not sure what we did here. Can someone write this, @Seb?)
+                 The continuous variables listed were standardized using z-score normalization.
                  
                 Our data was then ready to train 3 different ML models:
                 1. Logistic regression (CVD and Death separately)
@@ -1679,6 +1679,9 @@ def main():
 
                 Our best model was _______, which could be explained by______, however the models did not perform well enough to say that one of them was particularly well performing. We indeed saw a difference in risk factors and outcomes by sex, however historical contexts outline how these differences are not consistent with modern knowledge.
                  """)
+
+        st.subheader("Disclaimer")
+        st.info(""" This streamlit code was transferred from our Colab notebook with the help of GPT-5. As a result, we had to make some adjustments to ensure compatibility with Streamlit. AI suggested some edits to streamline functionality, which we accepted.""")
 
 if __name__ == "__main__":
     main()
