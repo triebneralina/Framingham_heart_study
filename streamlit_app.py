@@ -12,6 +12,7 @@ from sklearn.model_selection import StratifiedKFold, cross_validate
 from sklearn.metrics import roc_curve, auc, RocCurveDisplay
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
+from sklearn.neural_network import MLPClassifier
 
 # -------------------------------------------------------------------
 # CONFIGURE
@@ -585,6 +586,15 @@ def get_models(random_state=42):
             probability=True,   # needed for ROC/AUC
             random_state=random_state,
         ),
+        "Neural Net (MLP)": MLPClassifier(
+            hidden_layer_sizes=(32, 16),   
+            activation="relu",
+            solver="adam",
+            alpha=0.001,                  
+            max_iter=200,
+            early_stopping=True,           # stops if validation score stops improving
+            random_state=random_state,
+        ),            
     }
 
 
@@ -728,6 +738,7 @@ def main():
             "Winsorization summary",
             "Modeling: CVD",
             "Modeling: DEATH",
+            "Conclusion",
         ],
     )
 
@@ -756,17 +767,33 @@ def main():
     elif view == "Raw data overview":
         st.subheader("Raw Data: Period 1")
         st.info("""
-                We restrict the analysis to **Period 1** due to inconsistencies between study periods.
+                We restrict all analyses to **Period 1**.
+
+        We were given a dataset spans examinations conducted between 1956 to 1968. These examinations happened in exam cycles of the **Original Framingham Heart Study cohort**.
+        Therefore, this data does not capture the true cohort baseline established at the first Framingham examination in 1948. 
+        As a result, some participants may already have experienced cardiovascular events prior to "our" Period 1 examination.
+        To ensure a valid and interpretable baseline for our research question, we treat Period 1 as the analytic baseline and apply additional exclusion criteria when examining incident cardiovascular outcomes 
+        (e.g., excluding participants with prevalent disease at Period 1).
+
+        Including data from subsequent exam periods (Periods 2 and 3) would introduce several issues, including:
                 
+        - Overlapping participants with different baseline times,
+        - Inconsistent availability of key risk factor measurements across exam cycles, 
+        - Inconsistencies in defining the population “at risk” for incident outcomes.
+
+        Restricting the analysis to Period 1 ensures that all participants:
+        - Are observed at a common baseline time point,
+        - Have uniformly recorded baseline risk factors,
+        - Are followed prospectively for outcomes using the same time origin.
+
         **Benefits:**
-        - Allows for clearer baseline analysis of risk factors and outcomes
-        - Minimises bias introduced by the later exclusion of dead participants
-        - Allows for less distribution noise as data collection methods are consistent within each period but differ between them (time period differences)
-       
-         **Disadvantages:**
-        - Resulted in a smaller dataset, reducing statistical power (Larger variance, risk of overfitting, may not be a good fit for “data-hungry” ML models.
-        -Poor generalizability for modern populations (period 1 is the oldest)
-        - Does not allow observations of longitudinal disease and risk progression
+        - Clearly defined and consistent baseline for risk factor assessment
+        - Uniform measurement availability across participants
+        - Valid estimation of incident cardiovascular outcomes
+
+        **Limitations:**
+        - Reduces sample size, potentially lowering statistical power and increasing variance
+        - Limits generalizability to modern populations, as the cohort reflects mid-20th-century risk profiles and clinical practices        
        """)
 
         st.write("**Header: Period 1**")
@@ -795,7 +822,9 @@ def main():
 
         st.write("**Selected risk profile columns:**")
         st.write(RISK_PROFILE_COLUMNS)
-        st.info("Add section on why we chose these colums")
+        st.info("These variables were selected based on their established relevance to cardiovascular disease risk and availability in Period 1."
+        " Only variables measures simultaneously at baseline were included, as this ensures an ordered relationship between predictors and outcomes."
+        )
 
         if risk_df.empty:
             st.warning("No risk profile columns found for this period.")
@@ -880,8 +909,8 @@ def main():
         st.subheader("Discussion")
         st.info("""
                 Here we looked at the risk profile distributions for males and females as a part of EDA. At this stage, we noticed some things:
-                - Box plots show  good ampunt of outliers, we will address this later 
-                - hen checking the CIGPDAY feature, there was a peak for n=20. This is the number of cigarettes in a pack, and could reflect some rounding down / up which could introduce bias 
+                - Box plots show  good amount of outliers, we will address this later 
+                - When checking the CIGPDAY feature, there was a peak for n=20. This is the number of cigarettes in a pack, and could reflect some rounding down / up which could introduce bias 
                 - More females were being treated with BPMEDS than men. This reflects baseline differences in treatment (rather than risk), a potential confounding factor.
                 - In all previous incidences, males had more incidences than women for all
                 """)
@@ -1017,13 +1046,15 @@ def main():
         #----------------PREV Consistency----------------------------
         st.markdown("---")
         st.subheader("PREV* consistency checks (baseline medical history)")
-        st.info(""""
+        st.info("""
                 We performed a coherence check on the binary variables PrevCHD, PrevMI, and PrevAP.
-                PrevCHD was required to be consistent with PrevMI and PrevAP (since it is a combined variable for those 2)
-                : if either PrevMI or PrevAP equaled 1, then PrevCHD had to equal 1; 
+                PrevCHD was required to be consistent with PrevMI and PrevAP (since it is a combined variable for those 2).
+                If either PrevMI or PrevAP equaled 1, then PrevCHD had to equal 1.
+                
                 Our initial reasoning was that, conversely
                 PrevCHD could only equal 0 when both PrevMI and PrevAP equaled 0. When we found some inconsistencies, we re-examined this premise.
-                Since Coronary heart disease is am umbrella term, it is possible that these inconsistencies stem from a different coronary heart disease, which is why we decided to keep the inconsistent rows.
+                Since coronary heart disease is am umbrella term for multiple pathologies, it is possible that these inconsistencies stem from a "different" coronary heart disease.
+                Alternatively, inconsistencies in recording practices for this variable could account for the inconsistency. This is why we decided to keep the inconsistent rows.
                 """)
                  
         prev_checks = prev_consistency_checks(period1_df)
@@ -1143,19 +1174,19 @@ def main():
                 We addressed outliers by selecting physiological limits and winsorising at these values for numerical risk factors. 
                 These were the ranges we accepted, anything above or below was winsorised:
                 
-                Age: 18-110
+                - Age: 18 - 110 years
                 
-                Cigpday: <80
+                - Cigpday: < 80 (80 would represent chain smoking)
                 
-                BMI: 10-70
+                - BMI: 10 - 70 kg/m^2
                 
-                SYSBP: 60-300
+                - SYSBP: 60 - 300 mmHg
                 
-                DIASBP: 30-150
+                - DIASBP: 30 - 150 mmHg
                 
-                HR: 30 - (220- 32)
+                - HR: 30 - (220 - 32)bpm (220bpm minus the youngest age)
                 
-                TOTCHOL: 70-600
+                - TOTCHOL: 70 - 600 mg/dL (600mg/dL represents extreme familial hypercholesteremia)
                 
                 Then we visualised our descriptive statistics and distributions following outlier handling.
                 """)
@@ -1269,7 +1300,16 @@ def main():
         st.markdown("### 1. Analytic dataset overview")
         st.write("Shape of incident CVD dataset (rows, columns):", incident_cvd_df.shape)
 
-        st.info("Why did we choose these")
+        st.info("""
+        Our introduction (see raw data overview), touches on the reasoning behind the exclusion of previous disease incidence (PREVCHD, PREVSTRK) when examining CVD. 
+        This exclusion ensures that all individuals included in the analysis were genuinely at risk of experiencing a first CVD event at the start of follow-up.
+                
+        Including participants with pre-existing CVD would conflate disease prevalence with incidence, as such individuals are no longer susceptible to a first occurrence of the 
+        outcome and instead represent a population at risk for recurrence.
+        This would bias estimates of incident risk and obscure associations between baseline risk factors and new-onset disease.
+                
+        Restricting the analytic cohort to participants free of CVD at baseline aligns with standard epidemiologic practice and allows for valid estimation of incident CVD risk using baseline predictors.
+                """)
         st.write("Columns:")
         st.write(list(incident_cvd_df.columns))
 
@@ -1343,7 +1383,7 @@ def main():
                         .background_gradient(cmap = "Blues", subset = ["precision", "recall", "f1-score"])
                         )
 
-        st.markdown("### 5. Compare models (LogReg, Random Forest, SVM)")
+        st.markdown("### 5. Compare models (LogReg, Random Forest, SVM, NN)")
 
         models = get_models(random_state=42)
 
@@ -1427,7 +1467,21 @@ def main():
             st.dataframe(report_df.style
                         .format("{:.2f}")
                         .background_gradient(cmap = "Blues", subset = ["precision", "recall", "f1-score"])
-                        )        
+                        )   
+
+            st.subheader("Discussion")
+            st.info("""
+                    **Classical models (logistic regression, random forest, SVM):**
+
+                    Hyperparameter tuning and decision threshold optimisation were explored but resulted in negligible changes to performance metrics. Accuracy and related measures remained largely unchanged, so further optimisation results are not reported.
+                    
+                    **Neural networks:**
+                    
+                    Neural network models performed poorly and showed high variability across runs, likely due to the small dataset size and the data-intensive nature of these models.
+                    
+                    **Model stability:**
+                    Neural network outcomes fluctuated substantially between extreme and more plausible predictions, indicating sensitivity to random initialisation and limited robustness.
+                    """)      
 
     # ----------------------------------------------------------------
     # MODELING: DEATH
@@ -1503,7 +1557,7 @@ def main():
                         .background_gradient(cmap = "Blues", subset = ["precision", "recall", "f1-score"])
                         )     
         
-        st.markdown("### 5. Compare models (LogReg, Random Forest, SVM)")
+        st.markdown("### 5. Compare models (LogReg, Random Forest, SVM, NN)")
 
         models = get_models(random_state=42)
 
@@ -1573,8 +1627,58 @@ def main():
             st.dataframe(report_df.style
                         .format("{:.2f}")
                         .background_gradient(cmap = "Blues", subset = ["precision", "recall", "f1-score"])
-                        )         
+                        )  
 
+            st.subheader("Discussion")
+            st.info("""
+                    **Classical models (logistic regression, random forest, SVM):**
+
+                    Hyperparameter tuning and decision threshold optimisation were explored but resulted in negligible changes to performance metrics. Accuracy and related measures remained largely unchanged, so further optimisation results are not reported.
+                    
+                    **Neural networks:**
+                    
+                    Neural network models performed poorly and showed high variability across runs, likely due to the small dataset size and the data-intensive nature of these models.
+                    
+                    **Model stability:**
+                    Neural network outcomes fluctuated substantially between extreme and more plausible predictions, indicating sensitivity to random initialisation and limited robustness.
+                    """)       
+    #--------------------------------------------------------------------------------------------------------------
+    # CONCLUSION
+    #---------------------------------------------------------------------------------------------------------------
+    elif view == "Conclusion":
+        st.subheader("Conclusion")
+        st.write("""
+                 Our RQ: “In adults in the Framingham Heart Study (P), how well do baseline cardiovascular risk factors, 
+                 including sex (I), predict incident cardiovascular events and all-cause mortality over 24 years (O, T), 
+                 and does predictive performance or estimated risk differ between men and women (C)?”
+                
+                 To answer this question, we began by performing exploratory data analysis, visualising and using descriptive 
+                 statistics to observe the risk profiles and outcomes by sex in Period 1.
+                 We then selected features relevant to our RQ (risk factors and outcomes CVD as well as death).
+                 We then created incident datarames for our outcomes (CVD and death). For the CVD dataframe, we filtered out 
+                 previous incidents of CVD using PREV* variables. The dataframe for Death did not need this exclusion. 
+                 Total 2 data frames, 1 for each outcome: this prevents data leakage as previous incidences are very highly 
+                 correlated with their respective outcomes. 
+                
+                 Next, we cleaned the data, this involved:
+                - Identifying missing values and dropping them (small proportion)
+                - Handling outliers by applying physiological thresholds and winsorising extreme outliers.
+                - Following this, we checked for erroneous data/inconsistencies between variables like CURSMOKE and CIGPDAY, as well as all PREV- variables. 
+                We plotted our data again to observe changes before and after our cleaning.
+                 
+                 Before Standardisation, we performed the train/test split for both our CVD and Death df.
+                 Then, we standardised our data by (I'm not sure what we did here. Can someone write this, @Seb?)
+                 
+                Our data was then ready to train 3 different ML models:
+                1. Logistic regression (CVD and Death separately)
+                2. Random forest (CVD and Death separately)
+                3. Support Vector Machine (CVD and Death separately)
+                (We attempted to train neural networks but our dataset was too small to give good results)
+
+                 Finally, we applied k-fold analysis to all our models (6 in total) to assess performance more robustly.
+
+                Our best model was _______, which could be explained by______, however the models did not perform well enough to say that one of them was particularly well performing. We indeed saw a difference in risk factors and outcomes by sex, however historical contexts outline how these differences are not consistent with modern knowledge.
+                 """)
 
 
 
