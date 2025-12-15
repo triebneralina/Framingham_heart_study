@@ -652,6 +652,25 @@ def fit_models_and_eval(models, X_train_scaled, X_test_scaled, y_train, y_test):
     results_df = pd.DataFrame(results).sort_values(by="Test Accuracy", ascending=False)
     return results_df, conf_mats, reports, roc_data
 
+def plot_confusion_matrix_heatmap(cm, title="Confusion Matrix"):
+    fig, ax = plt.subplots(figsize=(4.8, 3.8))
+    sns.heatmap(
+        cm,
+        annot=True,
+        fmt="d",
+        cmap="Blues",
+        cbar=False,
+        linewidths=0.5,
+        linecolor="white",
+        xticklabels=["Pred 0", "Pred 1"],
+        yticklabels=["Actual 0", "Actual 1"],
+        ax=ax,
+    )
+    ax.set_title(title, fontsize=13, fontweight="bold")
+    ax.set_xlabel("Predicted label")
+    ax.set_ylabel("True label")
+    fig.tight_layout()
+    return fig
 
 def plot_roc_comparison(roc_data, title):
     """Overlay ROC curves for multiple models."""
@@ -1086,7 +1105,7 @@ def main():
                 st.pyplot(fig)
 
         st.subheader("Dealing with the missing values")
-        st.info(""""
+        st.info("""
                 The features that had missing values never had a missingness percentage higher than 5% so we dropped these. 
                 Our dataset is small to begin with, so data imputation would not be smart because it risks introducing data leakage.
                 """)
@@ -1309,18 +1328,20 @@ def main():
 
         # Confusion matrix on test set
         cm = confusion_matrix(y_test, y_test_pred)
-        cm_df = pd.DataFrame(
-            cm,
-            index=["Actual 0", "Actual 1"],
-            columns=["Pred 0", "Pred 1"],
-        )
+  
         st.markdown("**Confusion matrix (test set):**")
-        st.dataframe(cm_df)
+        fig_cm = plot_confusion_matrix_heatmap(cm, title="Confusion Matrix")
+        st.pyplot(fig_cm)
+
 
         # Classification report
         st.markdown("**Classification report (test set):**")
-        report = classification_report(y_test, y_test_pred, output_dict=False)
-        st.text(report)
+        report_dict = classification_report(y_test, y_test_pred, output_dict=True)
+        report_df = pd.DataFrame(report_dict).T
+        st.dataframe(report_df.style
+                        .format("{:.2f}")
+                        .background_gradient(cmap = "Blues", subset = ["precision", "recall", "f1-score"])
+                        )
 
         st.markdown("### 5. Compare models (LogReg, Random Forest, SVM)")
 
@@ -1345,10 +1366,17 @@ def main():
 
         st.markdown("**Confusion matrix (test set):**")
         cm = conf_mats[model_choice]
-        st.dataframe(pd.DataFrame(cm, index=["Actual 0", "Actual 1"], columns=["Pred 0", "Pred 1"]))
+        fig_cm = plot_confusion_matrix_heatmap(cm, title="Confusion Matrix")
+        st.pyplot(fig_cm)
+
 
         st.markdown("**Classification report (test set):**")
-        st.text(reports[model_choice])
+        report_dict = classification_report(y_test, y_test_pred, output_dict=True)
+        report_df = pd.DataFrame(report_dict).T
+        st.dataframe(report_df.style
+                        .format("{:.2f}")
+                        .background_gradient(cmap = "Blues", subset = ["precision", "recall", "f1-score"])
+                        )
 
         # ROC comparison plot (only models with predict_proba)
         if roc_data:
@@ -1389,9 +1417,17 @@ def main():
                     columns=["Pred 0", "Pred 1"],
                 )
             )
+            fig_cm_thr = plot_confusion_matrix_heatmap(cm_thr, title="Confusion Matrix (Threshold tuned)")
+            st.pyplot(fig_cm_thr)
+
 
             st.markdown("**Classification report (threshold tuned):**")
-            st.text(classification_report(y_test, y_pred_thr, output_dict=False))
+            report_dict = classification_report(y_test, y_pred_thr, output_dict=True)
+            report_df = pd.DataFrame(report_dict).T
+            st.dataframe(report_df.style
+                        .format("{:.2f}")
+                        .background_gradient(cmap = "Blues", subset = ["precision", "recall", "f1-score"])
+                        )        
 
     # ----------------------------------------------------------------
     # MODELING: DEATH
@@ -1453,18 +1489,19 @@ def main():
         st.write(f"Training accuracy: **{train_acc_d:.3f}**")
         st.write(f"Test accuracy: **{test_acc_d:.3f}**")
 
-        cm_d = confusion_matrix(y_test_d, y_test_pred_d)
-        cm_d_df = pd.DataFrame(
-            cm_d,
-            index=["Actual 0", "Actual 1"],
-            columns=["Pred 0", "Pred 1"],
-        )
         st.markdown("**Confusion matrix (test set):**")
-        st.dataframe(cm_d_df)
+        
+        cm_d = confusion_matrix(y_test_d, y_test_pred_d)
+        fig_cm_d_df = plot_confusion_matrix_heatmap(cm_d, title="Confusion Matrix")
+        st.pyplot(fig_cm_d_df)
 
-        st.markdown("**Classification report (test set):**")
-        report_d = classification_report(y_test_d, y_test_pred_d, output_dict=False)
-        st.text(report_d)
+        st.markdown("**Classification report (test set):**")            
+        report_d = classification_report(y_test_d, y_test_pred_d, output_dict=True)
+        report_df = pd.DataFrame(report_d).T
+        st.dataframe(report_df.style
+                        .format("{:.2f}")
+                        .background_gradient(cmap = "Blues", subset = ["precision", "recall", "f1-score"])
+                        )     
         
         st.markdown("### 5. Compare models (LogReg, Random Forest, SVM)")
 
@@ -1486,10 +1523,15 @@ def main():
 
         st.markdown("**Confusion matrix (test set):**")
         cm = conf_mats[model_choice]
-        st.dataframe(pd.DataFrame(cm, index=["Actual 0", "Actual 1"], columns=["Pred 0", "Pred 1"]))
+
+        fig_cm = plot_confusion_matrix_heatmap(cm, title="Confusion Matrix")
+        st.pyplot(fig_cm)
 
         st.markdown("**Classification report (test set):**")
-        st.text(reports[model_choice])
+        st.dataframe(report_df.style
+                        .format("{:.2f}")
+                        .background_gradient(cmap = "Blues", subset = ["precision", "recall", "f1-score"])
+                        )
 
         if roc_data:
             st.markdown("#### ROC Curves (test set)")
@@ -1522,16 +1564,16 @@ def main():
             st.write(f"Accuracy at threshold {threshold:.2f}: **{acc_thr:.3f}**")
 
             st.markdown("**Confusion matrix (threshold tuned):**")
-            st.dataframe(
-                pd.DataFrame(
-                    cm_thr,
-                    index=["Actual 0", "Actual 1"],
-                    columns=["Pred 0", "Pred 1"],
-                )
-            )
+            fig_cm_thr = plot_confusion_matrix_heatmap(cm_thr, title="Confusion Matrix")
+            st.pyplot(fig_cm_thr)
 
             st.markdown("**Classification report (threshold tuned):**")
-            st.text(classification_report(y_test_d, y_pred_thr, output_dict=False))
+            report_d = classification_report(y_test_d, y_pred_thr, output_dict=True)    
+            report_df = pd.DataFrame(report_d).T
+            st.dataframe(report_df.style
+                        .format("{:.2f}")
+                        .background_gradient(cmap = "Blues", subset = ["precision", "recall", "f1-score"])
+                        )         
 
 
 
