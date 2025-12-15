@@ -1680,8 +1680,6 @@ def main():
                 Our best model was _______, which could be explained by______, however the models did not perform well enough to say that one of them was particularly well performing. We indeed saw a difference in risk factors and outcomes by sex, however historical contexts outline how these differences are not consistent with modern knowledge.
                  """)
 
-
-
 if __name__ == "__main__":
     main()
 
