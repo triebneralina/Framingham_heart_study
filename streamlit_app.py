@@ -37,16 +37,13 @@ def load_data():
     df = pd.read_csv(DATA_URL)
     return df
 
-
 @st.cache_data
 def get_period_1_df(df):
     if "PERIOD" not in df.columns:
         return df.copy()
     return df[df["PERIOD"] == 1].copy()
-
 df = load_data()
 period1_df = get_period_1_df(df)
-
 
 # Columns used
 RISK_PROFILE_COLUMNS = [
@@ -99,7 +96,6 @@ OUTCOME_COLUMNS_FOR_COUNTS = [
     "DEATH",
 ]
 
-
 PHYSIOLOGICAL_LIMITS = {
     "AGE": {"min": 18, "max": 110},
     "CIGPDAY": {"min": 0, "max": 80},
@@ -109,7 +105,6 @@ PHYSIOLOGICAL_LIMITS = {
     "HEARTRTE": {"min": 30, "max": 188},
     "TOTCHOL": {"min": 70, "max": 600},
 }
-
 
 def make_risk_profile_df(period1_df):
     """
@@ -126,9 +121,7 @@ def make_outcomes_df(period1_df):
     cols = [c for c in cols if c in period1_df.columns]
     return period1_df[cols].copy()
 
-
 # --- Outcome-specific datasets --- #
-
 # Define outcome-specific predictor sets for CVD and death separately
 CVD_PREDICTOR_COLUMNS = [
     "AGE",
@@ -164,7 +157,6 @@ DEATH_PREDICTOR_COLUMNS = [
     "BPMEDS",
 ]
 
-
 def make_cvd_dataset(period1_df):
     """
     Build the analytic dataset for incident CVD:
@@ -187,9 +179,7 @@ def make_cvd_dataset(period1_df):
         cols = cols + ["CVD"]
     else:
         raise KeyError("CVD outcome column not found in dataframe.")
-
     return df[cols].copy()
-
 
 def make_death_dataset(period1_df):
     """
@@ -206,9 +196,7 @@ def make_death_dataset(period1_df):
         cols = cols + ["DEATH"]
     else:
         raise KeyError("DEATH outcome column not found in dataframe.")
-
     return df[cols].copy()
-
 
 # -------------------------------------------------------------------
 # CHECKS & CLEANING FUNCTIONS
@@ -228,7 +216,6 @@ def prev_consistency_checks(df):
     """
     prev_cols = ["PREVCHD", "PREVAP", "PREVMI", "PREVSTRK"]
     present = [c for c in prev_cols if c in df.columns]
-
     results = {}
 
     # 1) Non-binary values check
@@ -252,10 +239,7 @@ def prev_consistency_checks(df):
     if "PREVCHD" in df.columns and "PREVMI" in df.columns and "PREVAP" in df.columns:
         cond = (df["PREVCHD"] == 1) & (df["PREVMI"] == 0) & (df["PREVAP"] == 0)
         results["PREVCHD=1 but PREVMI=0 and PREVAP=0"] = df.loc[cond, ["PREVCHD", "PREVMI", "PREVAP"]].copy()
-
-
     return results
-
 
 def compute_missing_info(df):
     missing_counts = df.isnull().sum()
@@ -306,9 +290,8 @@ def winsorize_period1(period1_df):
             df[col] = df[col].clip(lower=limits["min"], upper=limits["max"])
     return df
 
-
 # -------------------------------------------------------------------
-# PLOTTING HELPERS: NEEDS REVIEW!!!!!!
+# PLOTTING HELPERS:
 # -------------------------------------------------------------------
 def plot_missing_bar(missing_info, title):
     fig, ax = plt.subplots(figsize=(8, 4))
@@ -326,8 +309,8 @@ def plot_missing_bar(missing_info, title):
     fig.tight_layout()
     return fig
 
-
 SEX_COLORS = {1: "paleturquoise", 2: "pink"}
+
 def plot_hist_by_sex(df, col):
     """
     Histogram of a numeric column grouped by SEX using dodge-style bars.
@@ -493,9 +476,7 @@ def plot_outcome_cases_by_sex(df, outcome_col, title):
         )
 
     summary_df = pd.DataFrame(rows)
-
     return fig, summary_df
-
 
 #--------------------------------------------------------------------
 # DATA PREPARATION
@@ -517,9 +498,7 @@ def prepare_model_data(df, outcome_col):
 
     # keep numeric predictors only
     X = X.select_dtypes(include=[np.number])
-
     return X, y
-
 
 def train_test_and_scale(X, y, test_size=0.3, random_state=42):
     """
@@ -705,8 +684,6 @@ def predict_with_threshold(model, X, threshold=0.5):
     y_pred = (y_prob >= threshold).astype(int)
     return y_prob, y_pred
 
-
-
 # -------------------------------------------------------------------
 # MAIN APP
 # -------------------------------------------------------------------
@@ -751,7 +728,7 @@ def main():
         st.info("In adults in the Framingham Heart Study (P), "\
             "how well do baseline cardiovascular risk factors, including sex (I), " \
             "predict incident cardiovascular events and all-cause mortality over 24 years (O, T), "
-            "and does baseline risk factor distributiondiffer between men and women (C)? ")
+            "and does baseline risk factor distribution differ between men and women (C)? ")
         
         st.subheader("Aim")
         st.markdown("""
@@ -760,7 +737,6 @@ def main():
                     2. Build predictive models for selected outcomes
                     """)
 
-    
     # ----------------------------------------------------------------
     # RAW DATA OVERVIEW
     # ----------------------------------------------------------------
@@ -852,17 +828,14 @@ def main():
                     for col in stats.columns
                 ]
 
-                # Optional: nicer index name
                 stats.index.name = "Statistic"
 
                 st.dataframe(stats)
 
-            # (Optional) keep this if you still want to see some raw rows
             with st.expander("Show first rows grouped by sex"):
                 st.dataframe(
                     risk_df.groupby("SEX").head().sort_values(by="SEX")
                 )
-
 
         #-------------------Continuous distributions---------------------------------------    
         st.subheader(f"Distributions of Continuous Risk Profile Variables")
@@ -883,7 +856,6 @@ def main():
             st.pyplot(fig_box)
 
         #---------------------------Binary Distributions----------------------------------------------
-        ##FIX LEGEND (0/1) COLOURS
         st.subheader(f"Distributions of Binary Risk Profile Variables")
         
         risk_df = make_risk_profile_df(period1_df)
@@ -1067,7 +1039,6 @@ def main():
                 st.error(f"Found {len(bad_rows)} inconsistent/suspicious rows.")
                 st.dataframe(bad_rows.head(20))
 
-
     # ----------------------------------------------------------------
     # MISSING DATA
     # ----------------------------------------------------------------
@@ -1191,8 +1162,6 @@ def main():
                 Then we visualised our descriptive statistics and distributions following outlier handling.
                 """)
 
-
-
         st.markdown("### Descriptive Statistics After Winsorization")
         st.dataframe(after_stats)
 
@@ -1218,7 +1187,6 @@ def main():
     #-----------------------------------------------------------------
     # VISUALIZATION AFTER WINSORIZING
     #-----------------------------------------------------------------
-
     #-----------------Check for remaining missings----------------------
         st.markdown("### Check for Remaining Missing Values (After Dropping + Winsorization)")
 
@@ -1373,7 +1341,6 @@ def main():
         fig_cm = plot_confusion_matrix_heatmap(cm, title="Confusion Matrix")
         st.pyplot(fig_cm)
 
-
         # Classification report
         st.markdown("**Classification report (test set):**")
         report_dict = classification_report(y_test, y_test_pred, output_dict=True)
@@ -1408,7 +1375,6 @@ def main():
         cm = conf_mats[model_choice]
         fig_cm = plot_confusion_matrix_heatmap(cm, title="Confusion Matrix")
         st.pyplot(fig_cm)
-
 
         st.markdown("**Classification report (test set):**")
         report_dict = classification_report(y_test, y_test_pred, output_dict=True)
@@ -1459,7 +1425,6 @@ def main():
             )
             fig_cm_thr = plot_confusion_matrix_heatmap(cm_thr, title="Confusion Matrix (Threshold tuned)")
             st.pyplot(fig_cm_thr)
-
 
             st.markdown("**Classification report (threshold tuned):**")
             report_dict = classification_report(y_test, y_pred_thr, output_dict=True)
@@ -1677,7 +1642,8 @@ def main():
 
                  Finally, we applied k-fold analysis to all our models (6 in total) to assess performance more robustly.
 
-                Our best model was _______, which could be explained by______, however the models did not perform well enough to say that one of them was particularly well performing. We indeed saw a difference in risk factors and outcomes by sex, however historical contexts outline how these differences are not consistent with modern knowledge.
+                Our best performing model for the CVD group was logistic regression, explained by the highest f1-score (0.5). The best performing model for the death group is the support vector machine, with an f1-score of 0.64.
+                 It should be mentioned however that none of the models performed well enough to say that one of them was performing significantly better than the other. We indeed saw a difference in risk factors and outcomes by sex, however historical contexts outline how these differences are not consistent with modern knowledge.
                  """)
 
         st.subheader("Disclaimer")
