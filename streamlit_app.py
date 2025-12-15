@@ -3339,7 +3339,7 @@ def main():
     #--------------------------------------------------------------------------------------------------------------
     # CONCLUSION
     #---------------------------------------------------------------------------------------------------------------
-        elif view == "Conclusion":
+    elif view == "Conclusion":
         st.subheader("Conclusion")
         st.write("""
                  Our RQ: “In adults in the Framingham Heart Study (P), how well do baseline cardiovascular risk factors, 
